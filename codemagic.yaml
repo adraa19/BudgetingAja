@@ -1,0 +1,58 @@
+workflows:
+  capacitor_android_release:
+    name: Capacitor Android Release (ZIP source)
+    max_build_duration: 60
+    environment:
+      vars:
+        NODE_VERSION: 18
+      groups:
+        - keystore_creds
+    scripts:
+      - name: Unzip project from repo
+        script: |
+          ls -la
+          ZIPFILE=$(ls *.zip | head -n 1)
+          if [ -z "$ZIPFILE" ]; then
+            echo "ZIP tidak ditemukan di repo"; exit 1
+          fi
+          mkdir src
+          unzip -q "$ZIPFILE" -d src
+          # Jika ZIP berisi satu folder, pindahkan isinya ke root
+          if [ $(ls -1 src | wc -l) -eq 1 ] && [ -d "src/$(ls -1 src)" ]; then
+            mv src/$(ls -1 src)/* .
+          else
+            mv src/* .
+          fi
+          rm -rf src
+          ls -la
+      - name: Set up Node
+        script: |
+          . $HOME/.nvm/nvm.sh || true
+          nvm install $NODE_VERSION
+          nvm use $NODE_VERSION
+          node -v && npm -v
+      - name: Install deps & build web
+        script: |
+          npm ci || npm install
+          npm run build || npx vite build
+          npm i -D @capacitor/cli
+          npm i @capacitor/core --save
+      - name: Generate Android project & sync
+        script: |
+          npx cap add android || true
+          npx cap sync android
+      - name: Configure signing
+        script: |
+          cd android
+          cat > keystore.properties <<EOF
+          storeFile=${CM_KEYSTORE_PATH}
+          storePassword=${CM_KEYSTORE_PASSWORD}
+          keyAlias=${CM_KEY_ALIAS}
+          keyPassword=${CM_KEY_PASSWORD}
+          EOF
+      - name: Build AAB (Play Store)
+        script: |
+          cd android
+          ./gradlew bundleRelease
+    artifacts:
+      - android/app/build/outputs/bundle/release/*.aab
